@@ -2,6 +2,8 @@ NAMESPACE ?= hmc-system
 VERSION ?= $(shell git describe --tags --always)
 # Image URL to use all building/pushing image targets
 IMG ?= hmc/controller:latest
+IMG_REPO = $(shell echo $(IMG) | cut -d: -f1)
+IMG_TAG = $(shell echo $(IMG) | cut -d: -f2)
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.29.0
 
@@ -103,10 +105,13 @@ tidy:
 test: generate-all fmt vet envtest tidy external-crd ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 
-# Utilize Kind or modify the e2e tests to load the image locally, enabling compatibility with other vendors.
-.PHONY: test-e2e # Run the e2e tests against a Kind k8s instance that is spun up.
+# Utilize Kind or modify the e2e tests to load the image locally, enabling
+# compatibility with other vendors.
+# TODO: Support running test-e2e locally by mirroring some of the action
+# workflow here and supporting pushing/using a desired REGISTRY_REPO.
+.PHONY: test-e2e # Run the e2e tests using a Kind k8s instance as the management cluster.
 test-e2e: cli-install
-	KIND_CLUSTER_NAME="hmc-test" KIND_VERSION=$(KIND_VERSION) go test ./test/e2e/ -v -ginkgo.v -timeout=2h
+	 KIND_CLUSTER_NAME="hmc-test" KIND_VERSION=$(KIND_VERSION) go test ./test/e2e/ -v -ginkgo.v -timeout=2h
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter & yamllint
@@ -190,7 +195,7 @@ KIND_CLUSTER_NAME ?= hmc-dev
 KIND_NETWORK ?= kind
 REGISTRY_NAME ?= hmc-local-registry
 REGISTRY_PORT ?= 5001
-REGISTRY_REPO ?= oci://127.0.0.1:$(REGISTRY_PORT)/charts
+REGISTRY_REPO ?= oci://$(REGISTRY_NAME):5000/charts
 DEV_PROVIDER ?= aws
 REGISTRY_IS_OCI = $(shell echo $(REGISTRY_REPO) | grep -q oci && echo true || echo false)
 CLUSTER_NAME ?= $(shell $(YQ) '.metadata.name' ./config/dev/deployment.yaml)
@@ -236,6 +241,9 @@ hmc-deploy: helm
 
 .PHONY: dev-deploy
 dev-deploy: ## Deploy HMC helm chart to the K8s cluster specified in ~/.kube/config.
+	$(YQ) eval -i '.image.repository = "$(IMG_REPO)"' config/dev/hmc_values.yaml
+	$(YQ) eval -i '.image.tag = "$(IMG_TAG)"' config/dev/hmc_values.yaml
+	$(YQ) eval -i '.controller.defaultRegistryURL = "$(REGISTRY_REPO)"' config/dev/hmc_values.yaml
 	$(MAKE) hmc-deploy HMC_VALUES=config/dev/hmc_values.yaml
 	$(KUBECTL) rollout restart -n $(NAMESPACE) deployment/hmc-controller-manager
 
@@ -309,21 +317,22 @@ dev-provider-delete: envsubst
 .PHONY: dev-creds-apply
 dev-creds-apply: dev-$(DEV_PROVIDER)-creds
 
-.PHONY: envsubst awscli dev-aws-nuke
+.PHONY: envsubst awscli yq dev-aws-nuke
 dev-aws-nuke: ## Warning: Destructive! Nuke all AWS resources deployed by 'DEV_PROVIDER=aws dev-provider-apply', prefix with CLUSTER_NAME to nuke a specific cluster.
+	@CLUSTER_NAME=$(CLUSTER_NAME) YQ=$(YQ) AWSCLI=$(AWSCLI) bash -c "./scripts/aws-nuke-ccm.sh elb"
 	@CLUSTER_NAME=$(CLUSTER_NAME) $(ENVSUBST) < config/dev/cloud_nuke.yaml.tpl > config/dev/cloud_nuke.yaml
-	DISABLE_TELEMETRY=true $(CLOUDNUKE) aws --region $$AWS_REGION --force --config config/dev/cloud_nuke.yaml --resource-type vpc,eip,nat-gateway,ec2-subnet,elb,elbv2,internet-gateway,network-interface,security-group
+	DISABLE_TELEMETRY=true $(CLOUDNUKE) aws --region $$AWS_REGION --force --config config/dev/cloud_nuke.yaml --resource-type vpc,eip,nat-gateway,ec2,ec2-subnet,elb,elbv2,ebs,internet-gateway,network-interface,security-group
 	@rm config/dev/cloud_nuke.yaml
-	@CLUSTER_NAME=$(CLUSTER_NAME) YQ=$(YQ) AWSCLI=$(AWSCLI) bash -c ./scripts/aws-nuke-ccm.sh
+	@CLUSTER_NAME=$(CLUSTER_NAME) YQ=$(YQ) AWSCLI=$(AWSCLI) bash -c "./scripts/aws-nuke-ccm.sh ebs"
 
 .PHONY: test-apply
-test-apply: kind-deploy registry-deploy dev-push dev-deploy dev-templates
+test-apply: kind-deploy dev-deploy dev-templates
 
 .PHONY: test-destroy
-test-destroy: kind-undeploy registry-undeploy
+test-destroy: kind-undeploy
 
 .PHONY: cli-install
-cli-install: clusterawsadm clusterctl cloud-nuke yq awscli ## Install the necessary CLI tools for deployment, development and testing.
+cli-install: clusterawsadm clusterctl cloud-nuke envsubst yq awscli ## Install the necessary CLI tools for deployment, development and testing.
 
 ##@ Dependencies
 
@@ -448,9 +457,21 @@ $(ENVSUBST): | $(LOCALBIN)
 .PHONY: awscli
 awscli: $(AWSCLI)
 $(AWSCLI): | $(LOCALBIN)
-	curl "https://awscli.amazonaws.com/awscli-exe-$(OS)-$(shell uname -m)-$(AWSCLI_VERSION).zip" -o "/tmp/awscliv2.zip"
-	unzip /tmp/awscliv2.zip -d /tmp
-	/tmp/aws/install -i $(LOCALBIN)/aws-cli -b $(LOCALBIN) --update
+	@if [ $(OS) == "linux" ]; then \
+		curl "https://awscli.amazonaws.com/awscli-exe-linux-$(shell uname -m)-$(AWSCLI_VERSION).zip" -o "/tmp/awscliv2.zip"; \
+		unzip /tmp/awscliv2.zip -d /tmp; \
+		/tmp/aws/install -i $(LOCALBIN)/aws-cli -b $(LOCALBIN) --update; \
+	fi; \
+	if [ $(OS) == "darwin" ]; then \
+			curl "https://awscli.amazonaws.com/AWSCLIV2.pkg" -o "AWSCLIV2.pkg"; \
+			installer -pkg AWSCLIV2.pkg -target $(LOCALBIN) -applyChoiceChangesXML choices.xml; \
+			rm AWSCLIV2.pkg; \
+	fi; \
+	if [ $(OS) == "windows" ]; then \
+		echo "Installing to $(LOCALBIN) on Windows is not yet implemented"; \
+		exit 1; \
+	fi; \
+
 
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
 # $1 - target path with name of binary (ideally with version)
