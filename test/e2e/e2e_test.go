@@ -183,8 +183,15 @@ var _ = Describe("controller", Ordered, func() {
 			// https://docs.k0smotron.io/stable/capi-aws/#prepare-the-aws-infra-provider
 			// Use Eventually as the AWSCluster might not be available
 			// immediately.
-			Eventually(aws.PatchAWSClusterReady(context.Background(), standaloneClient, hd.GetName())).
-				WithTimeout(5 * time.Minute).WithPolling(5 * time.Second).Should(Succeed())
+			templateBy(managedcluster.TemplateAWSHostedCP, "Patching AWSCluster to ready")
+			Eventually(func() error {
+				if err := aws.PatchAWSClusterReady(context.Background(), standaloneClient, hd.GetName()); err != nil {
+					_, _ = fmt.Fprintf(GinkgoWriter, "failed to patch AWSCluster to ready: %v, retrying...\n", err)
+					return err
+				}
+				_, _ = fmt.Fprintf(GinkgoWriter, "Patch succeeded\n")
+				return nil
+			}).WithTimeout(time.Minute).WithPolling(5 * time.Second).Should(Succeed())
 
 			// Verify the hosted cluster is running/ready.
 			templateBy(managedcluster.TemplateAWSHostedCP, "waiting for infrastructure to deploy successfully")
