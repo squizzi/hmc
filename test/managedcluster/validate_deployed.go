@@ -34,19 +34,23 @@ import (
 // resource.
 type resourceValidationFunc func(context.Context, *kubeclient.KubeClient, string) error
 
-var resourceValidators = map[string]resourceValidationFunc{
-	"clusters":       validateCluster,
-	"machines":       validateMachines,
-	"control-planes": validateK0sControlPlanes,
-	"csi-driver":     validateCSIDriver,
-	"ccm":            validateCCM,
+func NewDeployedValidation() map[string]resourceValidationFunc {
+	return map[string]resourceValidationFunc{
+		"clusters":       validateCluster,
+		"machines":       validateMachines,
+		"control-planes": validateK0sControlPlanes,
+		"csi-driver":     validateCSIDriver,
+		"ccm":            validateCCM,
+	}
 }
 
 // VerifyProviderDeployed is a provider-agnostic verification that checks
 // to ensure generic resources managed by the provider have been deleted.
 // It is intended to be used in conjunction with an Eventually block.
-func VerifyProviderDeployed(ctx context.Context, kc *kubeclient.KubeClient, clusterName string) error {
-	return verifyProviderAction(ctx, kc, clusterName, resourceValidators,
+func VerifyProviderDeployed(
+	ctx context.Context, kc *kubeclient.KubeClient, clusterName string,
+	resourceValidationMap map[string]resourceValidationFunc) error {
+	return verifyProviderAction(ctx, kc, clusterName, resourceValidationMap,
 		[]string{"clusters", "machines", "control-planes", "csi-driver", "ccm"})
 }
 

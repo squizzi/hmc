@@ -119,6 +119,8 @@ var _ = Describe("controller", Ordered, func() {
 
 		It("should work with an AWS provider", func() {
 			// Deploy a standalone cluster and verify it is running/ready.
+			// Deploy standalone with an xlarge instance since it will also be
+			// hosting the hosted cluster.
 			GinkgoT().Setenv(managedcluster.EnvVarAWSInstanceType, "t3.xlarge")
 			GinkgoT().Setenv(managedcluster.EnvVarInstallBeachHeadServices, "false")
 
@@ -129,8 +131,9 @@ var _ = Describe("controller", Ordered, func() {
 			standaloneDeleteFunc = kc.CreateManagedCluster(context.Background(), sd)
 
 			templateBy(managedcluster.TemplateAWSStandaloneCP, "waiting for infrastructure to deploy successfully")
+			resourcesToValidate := managedcluster.NewDeployedValidation()
 			Eventually(func() error {
-				return managedcluster.VerifyProviderDeployed(context.Background(), kc, clusterName)
+				return managedcluster.VerifyProviderDeployed(context.Background(), kc, clusterName, resourcesToValidate)
 			}).WithTimeout(30 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 
 			templateBy(managedcluster.TemplateAWSHostedCP, "installing controller and templates on standalone cluster")
@@ -195,19 +198,26 @@ var _ = Describe("controller", Ordered, func() {
 
 			// Verify the hosted cluster is running/ready.
 			templateBy(managedcluster.TemplateAWSHostedCP, "waiting for infrastructure to deploy successfully")
+			resourcesToValidate = managedcluster.NewDeployedValidation()
 			Eventually(func() error {
-				return managedcluster.VerifyProviderDeployed(context.Background(), standaloneClient, hdName)
+				return managedcluster.VerifyProviderDeployed(
+					context.Background(), standaloneClient, hdName, resourcesToValidate,
+				)
 			}).WithTimeout(30 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
 
-			// Delete the hosted ManagedCluster and verify it is removed.
 			// FIXME: Do not test hosted-cp deletion until #242 is
 			// resolved as it will just get stuck.
-			// templateBy(managedcluster.TemplateAWSHostedCP, "deleting the ManagedCluster")
-			// err = hostedDeleteFunc()
-			// Expect(err).NotTo(HaveOccurred())
-			// Eventually(func() error {
-			// 	return managedcluster.VerifyProviderDeleted(context.Background(), standaloneClient, hdName)
-			// }).WithTimeout(10 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+			/*
+				// Delete the hosted ManagedCluster and verify it is removed.
+				templateBy(managedcluster.TemplateAWSHostedCP, "deleting the ManagedCluster")
+				err = hostedDeleteFunc()
+				Expect(err).NotTo(HaveOccurred())
+
+				resourcesToValidate = managedcluster.NewDeletionValidation()
+				Eventually(func() error {
+					return managedcluster.VerifyProviderDeleted(context.Background(), standaloneClient, hdName)
+				}).WithTimeout(10 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+			*/
 
 			// Now delete the standalone ManagedCluster and verify it is
 			// removed, it is deleted last since it is the basis for the hosted
@@ -215,9 +225,14 @@ var _ = Describe("controller", Ordered, func() {
 			templateBy(managedcluster.TemplateAWSStandaloneCP, "deleting the ManagedCluster")
 			err = standaloneDeleteFunc()
 			Expect(err).NotTo(HaveOccurred())
+
+			resourcesToValidate = managedcluster.NewDeletionValidation()
 			Eventually(func() error {
-				return managedcluster.VerifyProviderDeleted(context.Background(), kc, clusterName)
-			}).WithTimeout(10 * time.Minute).WithPolling(10 * time.Second).Should(Succeed())
+				return managedcluster.VerifyProviderDeleted(
+					context.Background(), kc, clusterName, resourcesToValidate,
+				)
+			}).WithTimeout(10 * time.Minute).WithPolling(10 *
+				time.Second).Should(Succeed())
 		})
 	})
 })

@@ -23,17 +23,21 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-var deletionValidators = map[string]resourceValidationFunc{
-	"clusters":           validateClusterDeleted,
-	"machinedeployments": validateMachineDeploymentsDeleted,
-	"control-planes":     validateK0sControlPlanesDeleted,
+func NewDeletionValidation() map[string]resourceValidationFunc {
+	return map[string]resourceValidationFunc{
+		"clusters":           validateClusterDeleted,
+		"machinedeployments": validateMachineDeploymentsDeleted,
+		"control-planes":     validateK0sControlPlanesDeleted,
+	}
 }
 
 // VerifyProviderDeleted is a provider-agnostic verification that checks
 // to ensure generic resources managed by the provider have been deleted.
 // It is intended to be used in conjunction with an Eventually block.
-func VerifyProviderDeleted(ctx context.Context, kc *kubeclient.KubeClient, clusterName string) error {
-	return verifyProviderAction(ctx, kc, clusterName, deletionValidators,
+func VerifyProviderDeleted(
+	ctx context.Context, kc *kubeclient.KubeClient, clusterName string,
+	resourcesToValidate map[string]resourceValidationFunc) error {
+	return verifyProviderAction(ctx, kc, clusterName, resourcesToValidate,
 		[]string{"clusters", "machinedeployments", "control-planes"})
 }
 
