@@ -135,6 +135,11 @@ CHARTS_PACKAGE_DIR ?= $(LOCALBIN)/charts
 $(CHARTS_PACKAGE_DIR): | $(LOCALBIN)
 	rm -rf $(CHARTS_PACKAGE_DIR)
 	mkdir -p $(CHARTS_PACKAGE_DIR)
+IMAGES_PACKAGE_DIR ?= $(LOCALBIN)/images
+$(IMAGES_PACKAGE_DIR): | $(LOCALBIN)
+	rm -rf $(IMAGES_PACKAGE_DIR)
+	mkdir -p $(IMAGES_PACKAGE_DIR)
+PACKAGE_FOR_AIRGAP ?= false
 
 TEMPLATE_FOLDERS = $(patsubst $(TEMPLATES_DIR)/%,%,$(wildcard $(TEMPLATES_DIR)/*))
 
@@ -150,6 +155,9 @@ lint-chart-%:
 	$(HELM) lint --strict $(TEMPLATES_SUBDIR)/$*
 
 package-chart-%: lint-chart-%
+	@if [ $(PACKAGE_FOR_AIRGAP) ]; then \
+		echo $(TEMPLATES_SUBDIR)/$*; \
+	fi
 	$(HELM) package --destination $(CHARTS_PACKAGE_DIR) $(TEMPLATES_SUBDIR)/$*
 
 LD_FLAGS?= -s -w
@@ -347,6 +355,9 @@ dev-aws-nuke: envsubst awscli yq cloud-nuke ## Warning: Destructive! Nuke all AW
 .PHONY: cli-install
 cli-install: clusterawsadm clusterctl cloud-nuke envsubst yq awscli ## Install the necessary CLI tools for deployment, development and testing.
 
+.PHONY: airgap-package
+airgap-package: ## Generate Helm chart and Docker image tarballs for air-gapped environments.
+
 ##@ Dependencies
 
 ## Location to install dependencies to
@@ -414,6 +425,7 @@ HELM_INSTALL_SCRIPT ?= "https://raw.githubusercontent.com/helm/helm/master/scrip
 $(HELM): | $(LOCALBIN)
 	rm -f $(LOCALBIN)/helm-*
 	curl -s $(HELM_INSTALL_SCRIPT) | USE_SUDO=false HELM_INSTALL_DIR=$(LOCALBIN) DESIRED_VERSION=$(HELM_VERSION) BINARY_NAME=helm-$(HELM_VERSION) PATH="$(LOCALBIN):$(PATH)" bash
+	$(HELM) plugin install https://github.com/nikhilsbhat/helm-images
 
 $(FLUX_HELM_CRD): $(EXTERNAL_CRD_DIR)
 	rm -f $(FLUX_HELM_CRD)
