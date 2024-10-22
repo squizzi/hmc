@@ -17,18 +17,6 @@
 # into a private registry for use when deploying HMC ManagedClusters into an
 # air-gapped environment.  This script is packaged as part of the airgap bundle
 # for convenience.
-# Usage:
-#  airgap-push.sh [OPTIONS]
-# Options:
-#  -h, --help
-#    Print this help message
-#  -r, --repo
-#    The repository to push the images to
-#  -c, --chart-repo
-#    The repository to push the Helm charts to
-#  -a, --airgap-bundle
-#    The path to the airgap bundle
-#!/bin/bash
 
 REPO=""
 CHART_REPO=""

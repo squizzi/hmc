@@ -175,7 +175,7 @@ bundle-images: dev-apply $(IMAGES_PACKAGE_DIR) ## Create a tarball with all imag
 
 .PHONY: airgap-package
 airgap-package: helm-package bundle-images ## Create a tarball with all images and Helm charts used by HMC, useful for deploying in air-gapped environments.
-	tar -czf hmc-charts-images-$(VERSION).tgz $(CHARTS_PACKAGE_DIR) $(IMAGES_PACKAGE_DIR)
+	tar -czf hmc-charts-images-$(VERSION).tgz ./scripts/airgap-push.sh $(CHARTS_PACKAGE_DIR) $(IMAGES_PACKAGE_DIR)
 
 package-%-tmpl:
 	@make TEMPLATES_SUBDIR=$(TEMPLATES_DIR)/$* $(patsubst %,package-chart-%,$(shell ls $(TEMPLATES_DIR)/$*))
